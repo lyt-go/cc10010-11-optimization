@@ -10,9 +10,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import ROUTERS
+from app.services.blocking import blocking_service
 from app.store import store
 
 app = FastAPI(title="数据仓库ETL任务编排平台", version="1.0.0")
+
+# 启动时把已提交的校验批次归并成阻断结论，并把结论回写到运行侧清单；
+# 之后执行模块读到的始终是同一份快照，而不是各自再算一遍。
+blocking_service.bootstrap()
 
 app.add_middleware(
     CORSMiddleware,

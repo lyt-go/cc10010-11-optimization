@@ -30,6 +30,28 @@ def list_entries(
     return PageResult(items=items, total=total, page=page, size=size)
 
 
+@router.get("/blocking", response_model=dict)
+def blocking_overview() -> dict[str, Any]:
+    """运行侧阻断结论清单：只读执行模块已应用/可读取的同一结论版本。"""
+    return service.blocking_overview()
+
+
+@router.get("/{entry_id}/blocking", response_model=dict)
+def blocking_view(entry_id: int) -> dict[str, Any]:
+    """执行模块读取阻断结果数据快照；缺失结论时返回原因，不返回通过。"""
+    view = service.blocking_view(entry_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail=f"运行记录 {entry_id} 不存在或已归档")
+    return view
+
+
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出运行实例清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "runtime", "total": total, "items": items}
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条运行记录明细；不存在时给出可读的错误说明。"""
@@ -50,7 +72,10 @@ def create_entry(payload: EntryPayload) -> ActionResult:
 
 @router.post("/{entry_id}/actions", response_model=ActionResult)
 def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
-    """对单条运行记录执行启动作业、终止作业、标记成功；不允许的动作会被拦下并说明原因。"""
+    """对运行记录执行启动作业、终止作业、标记成功，或应用/重试阻断结论。
+
+    执行模块不自行计算命中结果：阻断相关的字段全部来自源端校验生成的同一份快照。
+    """
     action = str(payload.values.get("action") or "").strip()
     entry, message = service.run_action(entry_id, action)
     if entry is None:
@@ -58,8 +83,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     return ActionResult(ok=True, message=message, entry=entry)
 
 
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出运行实例清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "runtime", "total": total, "items": items}

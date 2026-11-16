@@ -74,5 +74,41 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 阻断结论快照
+
+源端校验的复合规则（行数、空值、新鲜度、分区完整性）不再各自压成一个状态，而是按表归并
+成一份不可变的**阻断结论快照**，执行模块只读取这份快照：
+
+- **批次归并**：每张表可分多批提交规则结果（`规则版本` 单调递增）。归并以规则为粒度：
+  规则版本高者优先；同版本内阻断级别高者优先，较晚到达的告警不会覆盖较早的阻断结论；
+  冲突双方的口径都留在 `冲突说明` / `被替代命中` 里，命中依据不丢。
+- **稳定快照**：每次重算生成的 `结论版本` 单调递增；内容未变时复用同一快照。内容相同的
+  批次重复提交只返回一次结论（`duplicate: true`），不会多出版本。
+- **配置关闭**：关闭或重新启用配置后，下一次读取 / 下一次运行必定重算，不复用旧结论；
+  已关闭时不再给出“通过”，命中结果转入 `参考命中规则` 留档。
+- **写入失败**：写入失败只记录失败现场，上一条完整快照继续对外提供；相同批次再次提交会
+  补算，成功后失败记录标记为已重试。
+- **执行模块**：`GET /api/runtime/{id}/blocking` 读快照并把 `快照编号 / 结论版本 / 规则版本 /
+  命中原因` 回写运行侧清单；配置页 `GET /api/sourcecheck/config-summary/{table}` 与执行模块
+  读的是同一份快照，命中规则和阻断级别一致。
+- **空态**：没有配置、没有批次、没有可用规则结果时返回 `missing: true` 并说明原因，
+  启动类动作会被拦下，不会把“缺失结论”当成通过。
+
+相关接口：
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/blocking/snapshots` | 每张表当前生效的阻断结论 |
+| `GET /api/blocking/snapshots/{table}` | 单表当前结论（缺失时给原因） |
+| `GET /api/blocking/snapshots/{table}/history` | 结论版本历史 |
+| `POST /api/blocking/batches` | 按表提交规则结果批次 |
+| `POST /api/sourcecheck/batches` | 同上（源端校验入口） |
+| `POST /api/sourcecheck/retry` | 校验失败 / 异常中断后按表重算 |
+| `GET /api/sourcecheck/config-summary/{table}` | 配置页的阻断口径 |
+| `GET /api/runtime/blocking` | 运行侧清单读取到的结论版本 |
+| `POST /api/runtime/{id}/actions` | `应用阻断结论` / `重试阻断校验` |
+
+回归测试：`cd backend && .venv/bin/python -m unittest discover -s tests`
+
 领域：数据工程
 子方向：数仓与数据湖

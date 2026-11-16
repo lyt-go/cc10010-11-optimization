@@ -8,6 +8,9 @@ from typing import Any
 
 from app.seed import SEED_ROWS
 
+# 阻断结论链路的内部表：供执行模块读取同一份快照，不在运营概览里当成业务模块统计。
+INTERNAL_MODULES = {"sourcecheck_batches", "blocking_snapshots", "blocking_write_failures"}
+
 
 class Store:
     def __init__(self) -> None:
@@ -16,7 +19,7 @@ class Store:
         }
 
     def module_names(self) -> list[str]:
-        return sorted(self._tables)
+        return sorted(name for name in self._tables if name not in INTERNAL_MODULES)
 
     def rows(self, module: str) -> list[dict[str, Any]]:
         return self._tables.setdefault(module, [])
